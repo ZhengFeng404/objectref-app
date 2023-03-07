@@ -1,13 +1,8 @@
-import contextlib
-import json
 import logging.config
-import os
-from datetime import datetime
 import random
-
-import requests
 import time
 
+import requests
 from cltl.backend.api.backend import Backend
 from cltl.backend.api.camera import CameraResolution, Camera
 from cltl.backend.api.microphone import Microphone
@@ -30,31 +25,31 @@ from cltl.combot.infra.config.k8config import K8LocalConfigurationContainer
 from cltl.combot.infra.di_container import singleton
 from cltl.combot.infra.event import Event
 from cltl.combot.infra.event.memory import SynchronousEventBusContainer
+from cltl.combot.infra.event_log import LogWriter
 from cltl.combot.infra.resource.threaded import ThreadedResourceContainer
 from cltl.eliza.api import Eliza
 from cltl.eliza.eliza import ElizaImpl
+from cltl.emissordata.api import EmissorDataStorage
+from cltl.emissordata.file_storage import EmissorDataFileStorage
 from cltl.gestures.gestures import GestureType
-from cltl.vad.webrtc_vad import WebRtcVAD
-from cltl_service.asr.service import AsrService
+from cltl.object_recognition.api import ObjectDetector
+from cltl.object_recognition.proxy import ObjectDetectorProxy
 from cltl_service.backend.backend import BackendService
 from cltl_service.backend.storage import StorageService
+from cltl_service.bdi.service import BDIService
 from cltl_service.chatui.service import ChatUiService
+from cltl_service.combot.event_log.service import EventLogService
+from cltl_service.context.service import ContextService
 from cltl_service.eliza.service import ElizaService
+from cltl_service.emissordata.client import EmissorDataClient
+from cltl_service.emissordata.service import EmissorDataService
 from cltl_service.intentions.init import InitService
-from cltl_service.vad.service import VadService
+from cltl_service.keyword.service import KeywordService
+from cltl_service.object_recognition.service import ObjectRecognitionService
+from emissor.representation.util import serializer as emissor_serializer
 from flask import Flask
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import run_simple
-
-from cltl.emissordata.api import EmissorDataStorage
-from cltl.emissordata.file_storage import EmissorDataFileStorage
-from cltl_service.bdi.service import BDIService
-from cltl_service.context.service import ContextService
-from cltl_service.emissordata.client import EmissorDataClient
-from cltl_service.emissordata.service import EmissorDataService
-from cltl_service.keyword.service import KeywordService
-
-from emissor.representation.util import serializer as emissor_serializer
 
 logging.config.fileConfig('config/logging.config', disable_existing_loggers=False)
 logger = logging.getLogger(__name__)
@@ -180,34 +175,6 @@ class BackendContainer(InfraContainer):
         super().stop()
 
 
-class VADContainer(InfraContainer):
-    @property
-    @singleton
-    def vad_service(self) -> VadService:
-        config = self.config_manager.get_config("cltl.vad.webrtc")
-        activity_window = config.get_int("activity_window")
-        activity_threshold = config.get_float("activity_threshold")
-        allow_gap = config.get_int("allow_gap")
-        padding = config.get_int("padding")
-        storage = None
-        # DEBUG
-        # storage = "/Users/tkb/automatic/workspaces/robo/eliza-parent/cltl-eliza-app/py-app/storage/audio/debug/vad"
-
-        vad = WebRtcVAD(activity_window, activity_threshold, allow_gap, padding, storage=storage)
-
-        return VadService.from_config(vad, self.event_bus, self.resource_manager, self.config_manager)
-
-    def start(self):
-        logger.info("Start VAD")
-        super().start()
-        self.vad_service.start()
-
-    def stop(self):
-        logger.info("Stop VAD")
-        self.vad_service.stop()
-        super().stop()
-
-
 class EmissorStorageContainer(InfraContainer):
     @property
     @singleton
@@ -236,56 +203,47 @@ class EmissorStorageContainer(InfraContainer):
         super().stop()
 
 
-class ASRContainer(EmissorStorageContainer, InfraContainer):
+class ObjectRecognitionContainer(InfraContainer):
     @property
     @singleton
-    def asr_service(self) -> AsrService:
-        config = self.config_manager.get_config("cltl.asr")
-        sampling_rate = config.get_int("sampling_rate")
+    def object_detector(self) -> ObjectDetector:
+        config = self.config_manager.get_config("cltl.object_recognition")
+
         implementation = config.get("implementation")
+        if not implementation:
+            logger.warning("No ObjectDetector configured")
+            return False
+        if implementation != "proxy":
+            raise ValueError("Unknown FaceEmotionExtractor implementation: " + implementation)
 
-        storage = None
-        # DEBUG
-        # storage = "/Users/tkb/automatic/workspaces/robo/eliza-parent/cltl-eliza-app/py-app/storage/audio/debug/asr"
+        config = self.config_manager.get_config("cltl.object_recognition.proxy")
+        start_infra = config.get_boolean("start_infra")
+        detector_url = config.get("detector_url") if "detector_url" in config else None
 
-        if implementation == "google":
-            from cltl.asr.google_asr import GoogleASR
-            impl_config = self.config_manager.get_config("cltl.asr.google")
-            asr = GoogleASR(impl_config.get("language"), impl_config.get_int("sampling_rate"),
-                            hints=impl_config.get("hints", multi=True))
-        elif implementation == "speechbrain":
-            from cltl.asr.speechbrain_asr import SpeechbrainASR
-            impl_config = self.config_manager.get_config("cltl.asr.speechbrain")
-            model = impl_config.get("model")
-            asr = SpeechbrainASR(model, storage=storage)
-        elif implementation == "wav2vec":
-            from cltl.asr.wav2vec_asr import Wav2Vec2ASR
-            impl_config = self.config_manager.get_config("cltl.asr.wav2vec")
-            model = impl_config.get("model")
-            asr = Wav2Vec2ASR(model, sampling_rate=sampling_rate, storage=storage)
-        elif not implementation:
-            asr = False
+        return ObjectDetectorProxy(start_infra, detector_url)
+
+    @property
+    @singleton
+    def object_recognition_service(self) -> ObjectRecognitionService:
+        if self.object_detector:
+            return ObjectRecognitionService.from_config(self.object_detector, self.event_bus,
+                                                        self.resource_manager, self.config_manager)
         else:
-            raise ValueError("Unsupported implementation " + implementation)
-
-        if asr:
-            return AsrService.from_config(asr, self.emissor_data_client,
-                                          self.event_bus, self.resource_manager, self.config_manager)
-        else:
-            logger.warning("No ASR implementation configured")
             return False
 
     def start(self):
         super().start()
-        if self.asr_service:
-            logger.info("Start ASR")
-            self.asr_service.start()
+        if self.object_recognition_service:
+            logger.info("Start Object Recognition")
+            self.object_recognition_service.start()
 
     def stop(self):
-        if self.asr_service:
-            logger.info("Stop ASR")
-            self.asr_service.stop()
-        super().stop()
+        try:
+            if self.object_recognition_service:
+                logger.info("Stop Object Recognition")
+                self.object_recognition_service.stop()
+        finally:
+            super().stop()
 
 
 class ElizaComponentsContainer(EmissorStorageContainer, InfraContainer):
@@ -388,39 +346,30 @@ class ElizaContainer(EmissorStorageContainer, InfraContainer):
 
 class ApplicationContainer(ElizaContainer, ElizaComponentsContainer,
                            ChatUIContainer,
-                           ASRContainer, VADContainer,
                            EmissorStorageContainer, BackendContainer):
-    pass
+    @property
+    @singleton
+    def log_writer(self):
+        config = self.config_manager.get_config("cltl.event_log")
 
+        return LogWriter(config.get("log_dir"), serializer)
 
-def get_event_log_path(config):
-    log_dir = config.get('event_log')
-    date_now = datetime.now()
+    @property
+    @singleton
+    def event_log_service(self):
+        return EventLogService.from_config(self.log_writer, self.event_bus, self.config_manager)
 
-    os.makedirs(log_dir, exist_ok=True)
+    def start(self):
+        logger.info("Start EventLog")
+        super().start()
+        self.event_log_service.start()
 
-    return f"{log_dir}/{date_now :%y_%m_%d-%H_%M_%S}.json"
-
-
-@contextlib.contextmanager
-def event_log(event_bus, config):
-    def log_event(event):
+    def stop(self):
         try:
-            event_log.write(json.dumps(event, default=serializer, indent=2) + ',\n')
-        except:
-            logger.exception("Failed to write event: %s", event)
-
-    with open(get_event_log_path(config), "w") as event_log:
-        event_log.writelines(['['])
-
-        topics = event_bus.topics
-        for topic in topics:
-            event_bus.subscribe(topic, log_event)
-        logger.info("Subscribed %s to %s", event_log.name, topics)
-
-        yield None
-
-        event_log.writelines([']'])
+            logger.info("Stop EventLog")
+            self.event_log_service.stop()
+        finally:
+            super().stop()
 
 
 def serializer(obj):
@@ -435,35 +384,30 @@ def serializer(obj):
 
 def main():
     ApplicationContainer.load_configuration()
-
     logger.info("Initialized Application")
-
     application = ApplicationContainer()
-    application.start()
 
-    intention_topic = application.config_manager.get_config("cltl.bdi").get("topic_intention")
-    application.event_bus.publish(intention_topic, Event.for_payload(IntentionEvent(["init"])))
+    with application as started_app:
+        intention_topic = started_app.config_manager.get_config("cltl.bdi").get("topic_intention")
+        started_app.event_bus.publish(intention_topic, Event.for_payload(IntentionEvent(["init"])))
 
-    config = application.config_manager.get_config("cltl.leolani")
-    with event_log(application.event_bus, config):
         routes = {
-            '/storage': application.storage_service.app,
-            '/emissor': application.emissor_data_service.app,
-            '/chatui': application.chatui_service.app
+            '/storage': started_app.storage_service.app,
+            '/emissor': started_app.emissor_data_service.app,
+            '/chatui': started_app.chatui_service.app,
+            '/monitoring': started_app.monitoring_service.app,
         }
 
-        if application.server:
-            routes['/host'] = application.server.app
+        if started_app.server:
+            routes['/host'] = started_app.server.app
 
-        web_app = DispatcherMiddleware(Flask("Eliza app"), routes)
+        web_app = DispatcherMiddleware(Flask("Objectref app"), routes)
 
         run_simple('0.0.0.0', 8000, web_app, threaded=True, use_reloader=False, use_debugger=False, use_evalex=True)
 
-        intention_topic = application.config_manager.get_config("cltl.bdi").get("topic_intention")
-        application.event_bus.publish(intention_topic, Event.for_payload(IntentionEvent(["terminate"])))
+        intention_topic = started_app.config_manager.get_config("cltl.bdi").get("topic_intention")
+        started_app.event_bus.publish(intention_topic, Event.for_payload(IntentionEvent(["terminate"])))
         time.sleep(1)
-
-        application.stop()
 
 
 if __name__ == '__main__':

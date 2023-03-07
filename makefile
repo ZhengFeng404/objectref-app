@@ -6,8 +6,7 @@ project_dependencies ?= $(addprefix $(project_root)/, \
 		cltl-requirements \
 		cltl-backend \
 		cltl-emissor-data \
-		cltl-vad \
-		cltl-asr \
+		cltl-object-recognition \
 		cltl-eliza \
 		cltl-chat-ui)
 

@@ -1,6 +1,5 @@
 cltl.backend[impl,host,service]
-cltl.asr[impl,google,service]
-cltl.vad[impl,service]
+cltl.object-recognition[impl,service]
 cltl.emissor-data[impl,service,client]
 cltl.chat-ui
 cltl.eliza

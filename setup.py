@@ -22,8 +22,6 @@ setup(
     python_requires='>=3.8',
     install_requires=[
         "cltl.backend[impl,host,service]",
-        "cltl.asr[google,service]",
-        "cltl.vad[impl,service]",
         "cltl.chat-ui",
         "cltl.eliza",
         "flask",
