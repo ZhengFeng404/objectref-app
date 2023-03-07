@@ -1,3 +1,0 @@
-# cltl-eliza
-
-TODO

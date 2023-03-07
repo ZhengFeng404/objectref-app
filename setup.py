@@ -7,16 +7,16 @@ with open("VERSION", "r") as fh:
     version = fh.read().strip()
 
 setup(
-    name='cltl.eliza-app',
+    name='objectref-app',
     version=version,
     package_dir={'': 'py-app'},
     packages=find_packages(include=['*'], where='py-app'),
     data_files=[('VERSION', ['VERSION'])],
-    url="https://github.com/leolani/cltl-eliza-app",
+    url="https://github.com/numblr/objectref-app",
     license='MIT License',
     author='CLTL',
     author_email='t.baier@vu.nl',
-    description='VAD for Leolani',
+    description='Application for object referencing project',
     long_description=long_description,
     long_description_content_type="text/markdown",
     python_requires='>=3.8',
