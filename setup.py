@@ -23,7 +23,7 @@ setup(
     install_requires=[
         "cltl.backend[impl,host,service]",
         "cltl.chat-ui",
-        "cltl.eliza",
+        "objectref",
         "flask",
         "werkzeug"
     ],

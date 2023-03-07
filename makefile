@@ -2,12 +2,12 @@ SHELL = /bin/bash
 
 project_dependencies ?= $(addprefix $(project_root)/, \
 		emissor \
+		objectref \
 		cltl-combot \
 		cltl-requirements \
 		cltl-backend \
 		cltl-emissor-data \
 		cltl-object-recognition \
-		cltl-eliza \
 		cltl-chat-ui)
 
 git_remote ?= https://github.com/leolani
@@ -21,3 +21,6 @@ include makefile.helm.mk
 
 .PHONY: build
 build: venv
+
+.PHONY: clean
+clean: py-clean base-clean

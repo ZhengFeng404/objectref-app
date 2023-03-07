@@ -1,5 +1,4 @@
 import logging.config
-import random
 import time
 
 import requests
@@ -27,11 +26,8 @@ from cltl.combot.infra.event import Event
 from cltl.combot.infra.event.memory import SynchronousEventBusContainer
 from cltl.combot.infra.event_log import LogWriter
 from cltl.combot.infra.resource.threaded import ThreadedResourceContainer
-from cltl.eliza.api import Eliza
-from cltl.eliza.eliza import ElizaImpl
 from cltl.emissordata.api import EmissorDataStorage
 from cltl.emissordata.file_storage import EmissorDataFileStorage
-from cltl.gestures.gestures import GestureType
 from cltl.object_recognition.api import ObjectDetector
 from cltl.object_recognition.proxy import ObjectDetectorProxy
 from cltl_service.backend.backend import BackendService
@@ -40,11 +36,11 @@ from cltl_service.bdi.service import BDIService
 from cltl_service.chatui.service import ChatUiService
 from cltl_service.combot.event_log.service import EventLogService
 from cltl_service.context.service import ContextService
-from cltl_service.eliza.service import ElizaService
 from cltl_service.emissordata.client import EmissorDataClient
 from cltl_service.emissordata.service import EmissorDataService
 from cltl_service.intentions.init import InitService
 from cltl_service.keyword.service import KeywordService
+from cltl_service.monitoring.service import MonitoringService
 from cltl_service.object_recognition.service import ObjectRecognitionService
 from emissor.representation.util import serializer as emissor_serializer
 from flask import Flask
@@ -70,8 +66,7 @@ class RemoteTextOutput(TextOutput):
     def consume(self, text: str, language=None):
         tts_headers = {'Content-type': 'text/plain'}
 
-        # animation = gestures.BOW
-        animation = f"{random.choice(list(GestureType))}"
+        animation = f""
         print("THIS IS WHAT YOU SHOULD VERBALIZE FOR US:", text, animation)
 
         response = f"\\^startTag({animation}){text}^stopTag({animation})"  #### cannot pass in strings with quotes!!
@@ -246,7 +241,12 @@ class ObjectRecognitionContainer(InfraContainer):
             super().stop()
 
 
-class ElizaComponentsContainer(EmissorStorageContainer, InfraContainer):
+class ObjectrefUtilContainer(EmissorStorageContainer, InfraContainer):
+    @property
+    @singleton
+    def monitoring_service(self) -> MonitoringService:
+        return MonitoringService.from_config(self.event_bus, self.resource_manager, self.config_manager)
+
     @property
     @singleton
     def keyword_service(self) -> KeywordService:
@@ -260,14 +260,7 @@ class ElizaComponentsContainer(EmissorStorageContainer, InfraContainer):
 
     @property
     @singleton
-    def keyword_service(self) -> KeywordService:
-        return KeywordService.from_config(self.emissor_data_client,
-                                          self.event_bus, self.resource_manager, self.config_manager)
-
-    @property
-    @singleton
     def bdi_service(self) -> BDIService:
-        # TODO make configurable
         bdi_model = {"init":
                          {"initialized": ["eliza"]},
                      "eliza":
@@ -283,20 +276,24 @@ class ElizaComponentsContainer(EmissorStorageContainer, InfraContainer):
                                        self.event_bus, self.resource_manager, self.config_manager)
 
     def start(self):
-        logger.info("Start Eliza services")
+        logger.info("Start Leolani services")
         super().start()
         self.bdi_service.start()
-        self.keyword_service.start()
         self.context_service.start()
         self.init_intention.start()
+        self.keyword_service.start()
+        self.monitoring_service.start()
 
     def stop(self):
-        logger.info("Stop Eliza services")
-        self.init_intention.stop()
-        self.bdi_service.stop()
-        self.keyword_service.stop()
-        self.context_service.stop()
-        super().stop()
+        try:
+            logger.info("Stop Leolani services")
+            self.monitoring_service.stop()
+            self.keyword_service.stop()
+            self.init_intention.stop()
+            self.bdi_service.stop()
+            self.context_service.stop()
+        finally:
+            super().stop()
 
 
 class ChatUIContainer(InfraContainer):
@@ -321,31 +318,7 @@ class ChatUIContainer(InfraContainer):
         super().stop()
 
 
-class ElizaContainer(EmissorStorageContainer, InfraContainer):
-    @property
-    @singleton
-    def eliza(self) -> Eliza:
-        return ElizaImpl()
-
-    @property
-    @singleton
-    def eliza_service(self) -> ElizaService:
-        return ElizaService.from_config(self.eliza, self.emissor_data_client,
-                                        self.event_bus, self.resource_manager, self.config_manager)
-
-    def start(self):
-        logger.info("Start Eliza")
-        super().start()
-        self.eliza_service.start()
-
-    def stop(self):
-        logger.info("Stop Eliza")
-        self.eliza_service.stop()
-        super().stop()
-
-
-class ApplicationContainer(ElizaContainer, ElizaComponentsContainer,
-                           ChatUIContainer,
+class ApplicationContainer(ObjectrefUtilContainer, ChatUIContainer, ObjectRecognitionContainer,
                            EmissorStorageContainer, BackendContainer):
     @property
     @singleton
