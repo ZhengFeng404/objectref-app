@@ -47,6 +47,8 @@ from flask import Flask
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import run_simple
 
+from objectref_service.objectloc.service import ObjectLocationService
+
 logging.config.fileConfig('config/logging.config', disable_existing_loggers=False)
 logger = logging.getLogger(__name__)
 
@@ -241,6 +243,25 @@ class ObjectRecognitionContainer(InfraContainer):
             super().stop()
 
 
+class ObjectLocationContainer(EmissorStorageContainer, InfraContainer):
+    @property
+    @singleton
+    def object_location_service(self) -> ObjectLocationService:
+        return ObjectLocationService.from_config(self.emissor_data_client,
+                                                 self.event_bus, self.resource_manager, self.config_manager)
+
+    def start(self):
+        logger.info("Start ObjectLocationService")
+        super().start()
+        self.object_location_service.start()
+
+    def stop(self):
+        try:
+            logger.info("Stop ObjectLocationService")
+            self.object_location_service.stop()
+        finally:
+            super().stop()
+
 class ObjectrefUtilContainer(EmissorStorageContainer, InfraContainer):
     @property
     @singleton
@@ -318,7 +339,8 @@ class ChatUIContainer(InfraContainer):
         super().stop()
 
 
-class ApplicationContainer(ObjectrefUtilContainer, ChatUIContainer, ObjectRecognitionContainer,
+class ApplicationContainer(ObjectrefUtilContainer, ObjectLocationContainer,
+                           ObjectRecognitionContainer, ChatUIContainer,
                            EmissorStorageContainer, BackendContainer):
     @property
     @singleton
