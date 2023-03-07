@@ -47,6 +47,8 @@ from flask import Flask
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import run_simple
 
+from objectref.objectloc.api import ObjectLocationDetector
+from objectref.objectloc.dummy import DummyObjectLocationDetector
 from objectref_service.objectloc.service import ObjectLocationService
 
 logging.config.fileConfig('config/logging.config', disable_existing_loggers=False)
@@ -246,8 +248,13 @@ class ObjectRecognitionContainer(InfraContainer):
 class ObjectLocationContainer(EmissorStorageContainer, InfraContainer):
     @property
     @singleton
+    def object_location_detector(self) -> ObjectLocationDetector:
+        return DummyObjectLocationDetector()
+
+    @property
+    @singleton
     def object_location_service(self) -> ObjectLocationService:
-        return ObjectLocationService.from_config(self.emissor_data_client,
+        return ObjectLocationService.from_config(self.object_location_detector, self.emissor_data_client,
                                                  self.event_bus, self.resource_manager, self.config_manager)
 
     def start(self):
@@ -261,6 +268,7 @@ class ObjectLocationContainer(EmissorStorageContainer, InfraContainer):
             self.object_location_service.stop()
         finally:
             super().stop()
+
 
 class ObjectrefUtilContainer(EmissorStorageContainer, InfraContainer):
     @property
