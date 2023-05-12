@@ -47,9 +47,9 @@ from flask import Flask
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from werkzeug.serving import run_simple
 
-from objectref.objectloc.api import ObjectLocationDetector
-from objectref.objectloc.dummy import DummyObjectLocationDetector
-from objectref_service.objectloc.service import ObjectLocationService
+from objectref.objectloc.api import ObjectReference
+from objectref.objectloc.dummy import DummyObjectReference
+from objectref_service.objectloc.service import ObjectReferenceService
 
 logging.config.fileConfig('config/logging.config', disable_existing_loggers=False)
 logger = logging.getLogger(__name__)
@@ -245,27 +245,27 @@ class ObjectRecognitionContainer(InfraContainer):
             super().stop()
 
 
-class ObjectLocationContainer(EmissorStorageContainer, InfraContainer):
+class ObjectReferenceContainer(EmissorStorageContainer, InfraContainer):
     @property
     @singleton
-    def object_location_detector(self) -> ObjectLocationDetector:
-        return DummyObjectLocationDetector()
+    def object_reference(self) -> ObjectReference:
+        return DummyObjectReference()
 
     @property
     @singleton
-    def object_location_service(self) -> ObjectLocationService:
-        return ObjectLocationService.from_config(self.object_location_detector, self.emissor_data_client,
-                                                 self.event_bus, self.resource_manager, self.config_manager)
+    def object_reference_service(self) -> ObjectReferenceService:
+        return ObjectReferenceService.from_config(self.object_reference, self.emissor_data_client,
+                                                  self.event_bus, self.resource_manager, self.config_manager)
 
     def start(self):
-        logger.info("Start ObjectLocationService")
+        logger.info("Start ObjectReferenceService")
         super().start()
-        self.object_location_service.start()
+        self.object_reference_service.start()
 
     def stop(self):
         try:
-            logger.info("Stop ObjectLocationService")
-            self.object_location_service.stop()
+            logger.info("Stop ObjectReferenceService")
+            self.object_reference_service.stop()
         finally:
             super().stop()
 
@@ -347,7 +347,7 @@ class ChatUIContainer(InfraContainer):
         super().stop()
 
 
-class ApplicationContainer(ObjectrefUtilContainer, ObjectLocationContainer,
+class ApplicationContainer(ObjectrefUtilContainer, ObjectReferenceContainer,
                            ObjectRecognitionContainer, ChatUIContainer,
                            EmissorStorageContainer, BackendContainer):
     @property
