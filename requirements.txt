@@ -2,7 +2,7 @@ cltl.backend[impl,host,service]
 cltl.object-recognition[impl,service]
 cltl.emissor-data[impl,service,client]
 cltl.chat-ui
-objectref
+objectref[impl,service]
 
 flask
 werkzeug
